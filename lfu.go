@@ -76,6 +76,20 @@ func (c *Cache) Set(key string, value interface{}) {
 	}
 }
 
+func (c *Cache) Delete(key string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if e, ok := c.values[key]; ok {
+		c.delete(e)
+	}
+}
+
+func (c *Cache) delete(entry *cacheEntry) {
+	delete(c.values, entry.key)
+	c.remEntry(entry.freqNode, entry)
+	c.len--
+}
+
 func (c *Cache) Len() int {
 	c.lock.Lock()
 	defer c.lock.Unlock()
@@ -94,7 +108,7 @@ func (c *Cache) evict(count int) int {
 	var evicted int
 	for i := 0; i < count; {
 		if place := c.freqs.Front(); place != nil {
-			for entry, _ := range place.Value.(*listEntry).entries {
+			for entry := range place.Value.(*listEntry).entries {
 				if i < count {
 					if c.EvictionChannel != nil {
 						c.EvictionChannel <- Eviction{
@@ -102,10 +116,8 @@ func (c *Cache) evict(count int) int {
 							Value: entry.value,
 						}
 					}
-					delete(c.values, entry.key)
-					c.remEntry(place, entry)
+					c.delete(entry)
 					evicted++
-					c.len--
 					i++
 				}
 			}
