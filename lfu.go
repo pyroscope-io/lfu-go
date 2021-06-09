@@ -14,19 +14,21 @@ type Cache struct {
 	// If len > UpperBound, cache will automatically evict
 	// down to LowerBound.  If either value is 0, this behavior
 	// is disabled.
-	UpperBound      int
-	LowerBound      int
-	values          map[string]*cacheEntry
-	freqs           *list.List
-	len             int
-	lock            *sync.Mutex
-	EvictionChannel chan<- Eviction
+	UpperBound         int
+	LowerBound         int
+	values             map[string]*cacheEntry
+	freqs              *list.List
+	len                int
+	lock               *sync.Mutex
+	EvictionChannel    chan<- Eviction
+	PersistenceChannel chan<- Eviction
 }
 
 type cacheEntry struct {
-	key      string
-	value    interface{}
-	freqNode *list.Element
+	key       string
+	value     interface{}
+	freqNode  *list.Element
+	persisted bool
 }
 
 type listEntry struct {
@@ -46,6 +48,7 @@ func (c *Cache) Get(key string) interface{} {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if e, ok := c.values[key]; ok {
+		e.persisted = false
 		c.increment(e)
 		return e.value
 	}
@@ -58,6 +61,7 @@ func (c *Cache) Set(key string, value interface{}) {
 	if e, ok := c.values[key]; ok {
 		// value already exists for key.  overwrite
 		e.value = value
+		e.persisted = false
 		c.increment(e)
 	} else {
 		// value doesn't exist.  insert
@@ -102,6 +106,12 @@ func (c *Cache) Evict(count int) int {
 	return c.evict(count)
 }
 
+func (c *Cache) Persist(count int) int {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.persist(count)
+}
+
 func (c *Cache) evict(count int) int {
 	// No lock here so it can be called
 	// from within the lock (during Set)
@@ -110,7 +120,7 @@ func (c *Cache) evict(count int) int {
 		if place := c.freqs.Front(); place != nil {
 			for entry := range place.Value.(*listEntry).entries {
 				if i < count {
-					if c.EvictionChannel != nil {
+					if c.EvictionChannel != nil && !entry.persisted {
 						c.EvictionChannel <- Eviction{
 							Key:   entry.key,
 							Value: entry.value,
@@ -124,6 +134,31 @@ func (c *Cache) evict(count int) int {
 		}
 	}
 	return evicted
+}
+
+func (c *Cache) persist(count int) int {
+	var persisted int
+	for i := 0; i < count; {
+		if place := c.freqs.Front(); place != nil {
+			for entry := range place.Value.(*listEntry).entries {
+				if i < count {
+					if c.PersistenceChannel != nil {
+						select {
+						case c.PersistenceChannel <- Eviction{
+							Key:   entry.key,
+							Value: entry.value,
+						}:
+						default:
+						}
+					}
+					entry.persisted = true
+					persisted++
+					i++
+				}
+			}
+		}
+	}
+	return persisted
 }
 
 func (c *Cache) increment(e *cacheEntry) {
