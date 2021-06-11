@@ -14,14 +14,14 @@ type Cache struct {
 	// If len > UpperBound, cache will automatically evict
 	// down to LowerBound.  If either value is 0, this behavior
 	// is disabled.
-	UpperBound         int
-	LowerBound         int
-	values             map[string]*cacheEntry
-	freqs              *list.List
-	len                int
-	lock               *sync.Mutex
-	EvictionChannel    chan<- Eviction
-	PersistenceChannel chan<- Eviction
+	UpperBound       int
+	LowerBound       int
+	values           map[string]*cacheEntry
+	freqs            *list.List
+	len              int
+	lock             *sync.Mutex
+	EvictionChannel  chan<- Eviction
+	WriteBackChannel chan<- Eviction
 }
 
 type cacheEntry struct {
@@ -106,7 +106,7 @@ func (c *Cache) Evict(count int) int {
 	return c.evict(count)
 }
 
-func (c *Cache) Persist(count int) int {
+func (c *Cache) WriteBack(count int) int {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	return c.persist(count)
@@ -142,9 +142,9 @@ func (c *Cache) persist(count int) int {
 		if place := c.freqs.Front(); place != nil {
 			for entry := range place.Value.(*listEntry).entries {
 				if i < count {
-					if c.PersistenceChannel != nil {
+					if c.WriteBackChannel != nil {
 						select {
-						case c.PersistenceChannel <- Eviction{
+						case c.WriteBackChannel <- Eviction{
 							Key:   entry.key,
 							Value: entry.value,
 						}:
