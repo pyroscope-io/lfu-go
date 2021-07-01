@@ -66,3 +66,16 @@ func TestEviction(t *testing.T) {
 		t.Error("Incorrect item")
 	}
 }
+
+func TestEvictionOrder(t *testing.T) {
+	c := New()
+	c.Set("a1", 1)
+	c.Set("a2", 2)
+	c.Set("a3", 3)
+	c.Get("a1")
+	c.Evict(2)
+
+	if e := c.Get("a1"); e == nil {
+		t.Error("Incorrect eviction order")
+	}
+}
