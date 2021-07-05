@@ -48,7 +48,6 @@ func (c *Cache) Get(key string) interface{} {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if e, ok := c.values[key]; ok {
-		e.persisted = false
 		c.increment(e)
 		return e.value
 	}
@@ -65,7 +64,7 @@ func (c *Cache) Set(key string, value interface{}) {
 		c.increment(e)
 	} else {
 		// value doesn't exist.  insert
-		e := new(cacheEntry)
+		e = new(cacheEntry)
 		e.key = key
 		e.value = value
 		c.values[key] = e
@@ -142,17 +141,14 @@ func (c *Cache) persist(count int) int {
 		if place := c.freqs.Front(); place != nil {
 			for entry := range place.Value.(*listEntry).entries {
 				if i < count {
-					if c.WriteBackChannel != nil {
+					if c.WriteBackChannel != nil && !entry.persisted {
 						select {
-						case c.WriteBackChannel <- Eviction{
-							Key:   entry.key,
-							Value: entry.value,
-						}:
 						default:
+						case c.WriteBackChannel <- Eviction{Key: entry.key, Value: entry.value}:
+							entry.persisted = true
+							persisted++
 						}
 					}
-					entry.persisted = true
-					persisted++
 					i++
 				}
 			}
