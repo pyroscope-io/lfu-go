@@ -19,7 +19,7 @@ type Cache struct {
 	values           map[string]*cacheEntry
 	freqs            *list.List
 	len              int
-	lock             *sync.Mutex
+	lock             sync.Mutex
 	EvictionChannel  chan<- Eviction
 	WriteBackChannel chan<- Eviction
 }
@@ -40,18 +40,29 @@ func New() *Cache {
 	c := new(Cache)
 	c.values = make(map[string]*cacheEntry)
 	c.freqs = list.New()
-	c.lock = new(sync.Mutex)
 	return c
 }
 
 func (c *Cache) Get(key string) interface{} {
 	c.lock.Lock()
-	defer c.lock.Unlock()
 	if e, ok := c.values[key]; ok {
 		c.increment(e)
+		c.lock.Unlock()
 		return e.value
 	}
+	c.lock.Unlock()
 	return nil
+}
+
+// MarkModified should be called instead of Set, when an item is fetched and
+// modified. Otherwise the item may be inconsistent due to the potential race
+// condition with another modification: thus one change may override another.
+func (c *Cache) MarkModified(key string) {
+	c.lock.Lock()
+	if e, ok := c.values[key]; ok {
+		e.persisted = false
+	}
+	c.lock.Unlock()
 }
 
 func (c *Cache) Set(key string, value interface{}) {
