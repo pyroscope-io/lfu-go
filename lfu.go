@@ -79,6 +79,14 @@ func (c *Cache) Set(key string, value interface{}) {
 	}
 }
 
+func (c *Cache) Walk(fn func(k string, v interface{})) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	for k, v := range c.values {
+		fn(k, v.value)
+	}
+}
+
 func (c *Cache) Delete(key string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
